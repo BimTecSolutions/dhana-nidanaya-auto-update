@@ -1,4 +1,3 @@
-```yaml
 name: Dhana Nidhanaya Auto Update
 
 on:
@@ -75,4 +74,3 @@ jobs:
         if: always()
         run: |
           rm -f serviceAccountKey.json
-```
