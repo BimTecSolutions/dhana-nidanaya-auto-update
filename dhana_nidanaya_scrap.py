@@ -300,26 +300,92 @@ class DhanaNidhanayaAutoUpdater:
         if not value:
             return None
 
-        value = value.strip()
+        value = self.normalize_text(str(value))
+
+        # Strip a leading weekday ("Monday, " / "Monday ")
+        value = re.sub(
+            r"^(Sun|Mon|Tues?|Wed(nes)?|Thur?s?|Fri|Satur)day[,\s]+",
+            "",
+            value,
+            flags=re.IGNORECASE
+        ).strip(" ,")
 
         formats = [
             "%Y-%m-%d",
+            "%Y/%m/%d",
+            "%Y.%m.%d",
             "%d-%m-%Y",
             "%d/%m/%Y",
+            "%d.%m.%Y",
             "%B %d, %Y",
             "%B %d %Y",
             "%b %d, %Y",
             "%b %d %Y",
-            "%A, %B %d, %Y",
+            "%d %B %Y",
+            "%d %b %Y",
+            "%d %B, %Y",
         ]
 
         for fmt in formats:
             try:
-                return datetime.strptime(value, fmt).isoformat()
+                return datetime.strptime(value, fmt).date().isoformat()
             except ValueError:
                 continue
 
         return value
+
+    # ------------------------------------------------------------
+    # DATE EXTRACTION
+    # ------------------------------------------------------------
+
+    # Any date shape NLB is likely to print.
+    DATE_REGEX = (
+        r"("
+        r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}"                      # 2026-09-15
+        r"|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}"                     # 15-09-2026
+        r"|(?:Sun|Mon|Tues?|Wed(?:nes)?|Thur?s?|Fri|Satur)day"
+        r"[,\s]+[A-Za-z]+\s+\d{1,2},?\s+\d{4}"                # Monday, September 15, 2026
+        r"|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}"                 # September 15, 2026
+        r"|\d{1,2}\s+[A-Za-z]{3,9},?\s+\d{4}"                 # 15 September 2026
+        r")"
+    )
+
+    def extract_date(self, block=None, block_text=""):
+        """Try several strategies, because NLB changes the markup."""
+
+        # 1. A <time> element with a machine-readable attribute.
+        if block is not None:
+            for tag in block.find_all("time"):
+                value = tag.get("datetime") or tag.get_text(strip=True)
+                if value and re.search(r"\d{4}", value):
+                    return self.normalize_text(value)
+
+            # 2. Any element whose class/id mentions "date".
+            for tag in block.find_all(
+                attrs={"class": re.compile(r"date", re.IGNORECASE)}
+            ):
+                value = self.normalize_text(tag.get_text(" ", strip=True))
+                match = re.search(self.DATE_REGEX, value, re.IGNORECASE)
+                if match:
+                    return match.group(1).strip()
+
+        block_text = self.normalize_text(block_text)
+
+        # 3. An explicit "Date:" label.
+        labelled = re.search(
+            r"(?:Draw\s+)?Date\s*[:\-]?\s*" + self.DATE_REGEX,
+            block_text,
+            re.IGNORECASE
+        )
+        if labelled:
+            return labelled.group(1).strip()
+
+        # 4. Any date-looking string anywhere in the result block.
+        loose = re.search(self.DATE_REGEX, block_text, re.IGNORECASE)
+        if loose:
+            return loose.group(1).strip()
+
+        return None
 
     # ============================================================
     # PARSE ONE RESULT BLOCK FROM THE REAL HTML
@@ -393,19 +459,11 @@ class DhanaNidhanayaAutoUpdater:
             # ------------------------------------------------
             # Date
             # ------------------------------------------------
-            date = None
+            date = self.extract_date(block, block_text)
 
-            date_match = re.search(
-                r"Date\s*:?\s*"
-                r"(\d{4}-\d{2}-\d{2}"
-                r"|\d{1,2}[-/]\d{1,2}[-/]\d{4}"
-                r"|[A-Za-z]+\s+\d{1,2},?\s+\d{4})",
-                block_text,
-                re.IGNORECASE
-            )
-
-            if date_match:
-                date = date_match.group(1).strip()
+            if date is None and os.environ.get("NLB_DEBUG"):
+                print("   🐛 Result block text:")
+                print("      " + block_text[:600])
 
             # ------------------------------------------------
             # Sunday Bonus (extra <ol>, four single digits)
@@ -476,19 +534,10 @@ class DhanaNidhanayaAutoUpdater:
 
         numbers = [f"{int(found.group(i)):02d}" for i in range(2, 6)]
 
-        date_match = re.search(
-            r"Date\s*:?\s*"
-            r"(\d{4}-\d{2}-\d{2}"
-            r"|\d{1,2}[-/]\d{1,2}[-/]\d{4}"
-            r"|[A-Za-z]+\s+\d{1,2},?\s+\d{4})",
-            section,
-            re.IGNORECASE
-        )
-
         return {
             "symbol": found.group(1).upper(),
             "numbers": numbers,
-            "date": date_match.group(1).strip() if date_match else None,
+            "date": self.extract_date(None, section),
             "sunday_bonus": self.extract_sunday_bonus_from_text(section),
         }
 
@@ -560,6 +609,25 @@ class DhanaNidhanayaAutoUpdater:
             if not parsed:
                 print("   ⚠️ Draw not found on this page.")
                 continue
+
+            # Last resort: look around the draw number in the whole page.
+            if not parsed.get("date"):
+
+                page_text = self.normalize_text(
+                    soup.get_text(separator=" ", strip=True)
+                )
+
+                near = re.search(
+                    rf"Draw\s*No\.?\s*:?\s*{re.escape(str(draw_number))}\b",
+                    page_text,
+                    re.IGNORECASE
+                )
+
+                if near:
+                    window = page_text[
+                        max(0, near.start() - 200): near.start() + 400
+                    ]
+                    parsed["date"] = self.extract_date(None, window)
 
             result = {
                 "lottery": self.LOTTERY_NAME,
@@ -654,6 +722,11 @@ class DhanaNidhanayaAutoUpdater:
             print(
                 f"   🎯 Result: {result['symbol']} "
                 f"{' '.join(result['numbers'])}"
+            )
+
+            print(
+                f"   📅 Date: {result['date']} "
+                f"-> {result['date_iso']}"
             )
 
             if "sunday_bonus" in result:
