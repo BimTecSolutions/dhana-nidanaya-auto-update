@@ -338,17 +338,17 @@ class DhanaNidhanayaAutoUpdater:
     def format_display_date(self, value):
 
 
-    iso = self.parse_date(value)
-
-    if not iso:
-        return value
-
-    try:
-        dt = datetime.strptime(iso, "%Y-%m-%d")
-        return f"{dt.strftime('%B')} {dt.day}, {dt.year}"
-    except ValueError:
-        # parse_date returned the raw string (unknown format)
-        return value
+        iso = self.parse_date(value)
+    
+        if not iso:
+            return value
+    
+        try:
+            dt = datetime.strptime(iso, "%Y-%m-%d")
+            return f"{dt.strftime('%B')} {dt.day}, {dt.year}"
+        except ValueError:
+            # parse_date returned the raw string (unknown format)
+            return value
 
     # ------------------------------------------------------------
     # DATE EXTRACTION
