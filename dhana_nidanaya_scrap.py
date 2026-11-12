@@ -650,7 +650,7 @@ class DhanaNidhanayaAutoUpdater:
                 "lottery_slug": self.LOTTERY_SLUG,
                 "draw_number": int(draw_number),
                 "draw_number_str": str(draw_number),
-                "date": parsed["date"],
+                "date": self.format_display_date(parsed["date"]),
                 "date_iso": self.parse_date(parsed["date"]),
                 "symbol": parsed["symbol"],
                 "numbers": parsed["numbers"],
