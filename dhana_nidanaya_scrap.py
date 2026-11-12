@@ -336,7 +336,7 @@ class DhanaNidhanayaAutoUpdater:
         
     # change the date format to removing the weekday     
     def format_display_date(self, value):
-    """Return the date as 'November 10, 2026' (no weekday)."""
+
 
     iso = self.parse_date(value)
 
