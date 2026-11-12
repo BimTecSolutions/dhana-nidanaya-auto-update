@@ -333,6 +333,22 @@ class DhanaNidhanayaAutoUpdater:
                 continue
 
         return value
+        
+    # change the date format to removing the weekday     
+    def format_display_date(self, value):
+    """Return the date as 'November 10, 2026' (no weekday)."""
+
+    iso = self.parse_date(value)
+
+    if not iso:
+        return value
+
+    try:
+        dt = datetime.strptime(iso, "%Y-%m-%d")
+        return f"{dt.strftime('%B')} {dt.day}, {dt.year}"
+    except ValueError:
+        # parse_date returned the raw string (unknown format)
+        return value
 
     # ------------------------------------------------------------
     # DATE EXTRACTION
